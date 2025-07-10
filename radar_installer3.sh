@@ -1,14 +1,62 @@
 #!/bin/bash
 
 # Parse command-line arguments
-if [ "$#" -ne 2 ] || [ "$1" != "--apikey" ]; then
-    echo "Usage: $0 --apikey <your-api-key>"
+REGION="US"  # Default region
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --apikey)
+            if [[ -n "$2" && "$2" != --* ]]; then
+                API_KEY="$2"
+                shift 2
+            else
+                echo "Error: --apikey requires a value"
+                exit 1
+            fi
+            ;;
+        --region)
+            if [[ -n "$2" && "$2" != --* ]]; then
+                REGION="$2"
+                shift 2
+            else
+                echo "Error: --region requires a value (US or EU)"
+                exit 1
+            fi
+            ;;
+        --help|-h)
+            echo "Usage: $0 --apikey <your-api-key> [--region US|EU]"
+            echo "  --apikey  Your TuxCare Radar API key (required)"
+            echo "  --region  Specify region (US or EU, default: US)"
+            echo "  --help    Show this help message"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
+
+# Validate required arguments
+if [ -z "$API_KEY" ]; then
+    echo "Error: --apikey is required"
+    echo "Usage: $0 --apikey <your-api-key> [--region US|EU]"
     exit 1
 fi
 
-API_KEY="$2"
+# Set base URL based on region
+if [ "$REGION" = "EU" ]; then
+    BASE_URL="https://eu.radar.tuxcare.com"
+elif [ "$REGION" = "US" ]; then
+    BASE_URL="https://radar.tuxcare.com"
+else
+    echo "Error: Invalid region '$REGION'. Must be 'US' or 'EU'."
+    exit 1
+fi
 
-# Function to validate that the configuration file contains the correct API key
+echo "Using $REGION region: $BASE_URL"
+
+# Function to validate that the configuration file contains the correct API key and base URL
 validate_configuration() {
     CONFIG_FILE="/etc/tuxcare-radar/radar.yaml"
     if [ -f "$CONFIG_FILE" ]; then
@@ -16,6 +64,13 @@ validate_configuration() {
             echo "Configuration file is correctly set up with the provided API key."
         else
             echo "Error: Configuration file does not contain the correct API key."
+            exit 1
+        fi
+        
+        if grep -q "base-url: $BASE_URL" "$CONFIG_FILE"; then
+            echo "Configuration file is correctly set up with the $REGION region URL."
+        else
+            echo "Error: Configuration file does not contain the correct base URL for $REGION region."
             exit 1
         fi
     else
@@ -45,7 +100,6 @@ EOL
         echo "Error: Failed to install TuxCare Radar."
         exit 1
     fi
-
 elif [ -f /etc/debian_version ]; then
     # Debian/Ubuntu
     echo "Detected Debian/Ubuntu-based OS. Setting up TuxCare Radar repo..."
@@ -54,13 +108,11 @@ elif [ -f /etc/debian_version ]; then
         echo "Error: Failed to download the GPG key."
         exit 1
     fi
-
     source /etc/os-release
     printf '%s' \
       "deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/tuxcare.gpg] " \
       "https://repo.tuxcare.com/radar/$ID/$VERSION_ID " \
       "stable main" > /etc/apt/sources.list.d/tuxcare-radar.list
-
     echo "Updating package lists..."
     apt-get update
     echo "Installing TuxCare Radar software..."
@@ -76,13 +128,21 @@ else
     exit 1
 fi
 
-# Configure the software with the API key
-echo "Configuring TuxCare Radar with the API key..."
+# Configure the software with the API key and base URL
+echo "Configuring TuxCare Radar with the API key and $REGION region..."
 sed -i "s/apikey:.*/apikey: $API_KEY/" /etc/tuxcare-radar/radar.yaml
 if [ $? -eq 0 ]; then
     echo "TuxCare Radar configuration updated with the API key."
 else
     echo "Error: Failed to configure TuxCare Radar with the API key."
+    exit 1
+fi
+
+sed -i "s|base-url:.*|base-url: $BASE_URL|" /etc/tuxcare-radar/radar.yaml
+if [ $? -eq 0 ]; then
+    echo "TuxCare Radar configuration updated with the $REGION region base URL."
+else
+    echo "Error: Failed to configure TuxCare Radar with the base URL."
     exit 1
 fi
 
